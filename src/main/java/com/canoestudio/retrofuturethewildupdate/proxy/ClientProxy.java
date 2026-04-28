@@ -1,5 +1,6 @@
 package com.canoestudio.retrofuturethewildupdate.proxy;
 
+import com.canoestudio.retrofuturethewildupdate.RTWU;
 import com.canoestudio.retrofuturethewildupdate.client.particle.ParticleSonicBoom;
 import com.canoestudio.retrofuturethewildupdate.entity.Warden;
 import com.canoestudio.retrofuturethewildupdate.client.renderer.RenderWarden;
