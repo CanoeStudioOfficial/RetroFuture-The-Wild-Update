@@ -11,6 +11,7 @@ import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.client.renderer.vertex.DefaultVertexFormats;
 import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.potion.PotionEffect;
 import net.minecraft.util.ResourceLocation;
 import net.minecraftforge.client.event.EntityViewRenderEvent;
 import net.minecraftforge.client.event.RenderGameOverlayEvent;
@@ -25,15 +26,42 @@ import net.minecraftforge.fml.relauncher.Side;
 public class DarknessFogHandler {
 
     private static final ResourceLocation VIGNETTE_TEX = new ResourceLocation(RTWU.ID, "textures/misc/vignette.png");
-    private static float darknessPulse = 0.0f;
+
+    private static float fadeFactor = 0.0f;
+    private static boolean hadDarknessLastTick = false;
+    private static float heartbeatPulse = 0.0f;
+
+    private static final float FOG_DENSITY_MAX = 1.2f;
+    private static final float FOG_DENSITY_MIN = 0.15f;
+    private static final float PULSE_SPEED = 0.065f;
+    private static final float EFFECTIVE_SIGHT = 14.0f;
 
     @SubscribeEvent
     public static void onClientTick(TickEvent.ClientTickEvent event) {
-        if (event.phase == TickEvent.Phase.END) {
-            if (darknessPulse > 0.0f) {
-                darknessPulse -= 0.025f;
-            } else {
-                darknessPulse = 0.0f;
+        if (event.phase != TickEvent.Phase.END) {
+            return;
+        }
+        Minecraft mc = Minecraft.getMinecraft();
+        if (mc.player == null) {
+            return;
+        }
+
+        boolean hasDarkness = mc.player.isPotionActive(ModPotions.DARKNESS);
+
+        if (hasDarkness) {
+            if (!hadDarknessLastTick) {
+                fadeFactor = 0.0f;
+            }
+            fadeFactor = Math.min(1.0f, fadeFactor + 0.033f);
+        } else {
+            fadeFactor = Math.max(0.0f, fadeFactor - 0.025f);
+        }
+        hadDarknessLastTick = hasDarkness;
+
+        if (heartbeatPulse > 0.0f) {
+            heartbeatPulse -= 0.05f;
+            if (heartbeatPulse < 0.0f) {
+                heartbeatPulse = 0.0f;
             }
         }
     }
@@ -42,32 +70,51 @@ public class DarknessFogHandler {
     public static void onSoundPlay(PlaySoundEvent event) {
         if (event.getSound() != null && ModSounds.WARDEN_HEARTBEAT != null
             && event.getSound().getSoundLocation().equals(ModSounds.WARDEN_HEARTBEAT.getRegistryName())) {
-            darknessPulse = 1.0f;
+            heartbeatPulse = 1.0f;
         }
     }
 
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public static void onFogColor(EntityViewRenderEvent.FogColors event) {
-        EntityPlayer player = Minecraft.getMinecraft().player;
-        if (player != null && player.isPotionActive(ModPotions.DARKNESS)) {
-            event.setRed(0.0f);
-            event.setGreen(0.0f);
-            event.setBlue(0.0f);
+        if (fadeFactor <= 0.0f) {
+            return;
         }
+        EntityPlayer player = Minecraft.getMinecraft().player;
+        if (player == null || !player.isPotionActive(ModPotions.DARKNESS)) {
+            return;
+        }
+        float lerp = fadeFactor;
+        event.setRed(event.getRed() * (1.0f - lerp));
+        event.setGreen(event.getGreen() * (1.0f - lerp));
+        event.setBlue(event.getBlue() * (1.0f - lerp));
     }
 
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public static void onFogDensity(EntityViewRenderEvent.FogDensity event) {
-        EntityPlayer player = Minecraft.getMinecraft().player;
-        if (player != null && player.isPotionActive(ModPotions.DARKNESS)) {
-            if (event.getState().getMaterial() == Material.WATER
-                || event.getState().getMaterial() == Material.LAVA) {
-                return;
-            }
-            float density = 0.033f + darknessPulse * 0.1f;
-            event.setDensity(density);
-            event.setCanceled(true);
+        if (fadeFactor <= 0.0f) {
+            return;
         }
+        EntityPlayer player = Minecraft.getMinecraft().player;
+        if (player == null || !player.isPotionActive(ModPotions.DARKNESS)) {
+            return;
+        }
+        if (event.getState().getMaterial() == Material.WATER
+            || event.getState().getMaterial() == Material.LAVA) {
+            return;
+        }
+
+        float time = player.ticksExisted + Minecraft.getMinecraft().getRenderPartialTicks();
+        float pulse = (float) Math.sin(time * PULSE_SPEED) * 0.5f + 0.5f;
+        pulse = pulse * pulse;
+
+        float heartBoost = heartbeatPulse * 0.3f;
+        float effectivePulse = Math.min(1.0f, pulse + heartBoost);
+
+        float density = FOG_DENSITY_MIN + (FOG_DENSITY_MAX - FOG_DENSITY_MIN) * (1.0f - effectivePulse);
+        density *= fadeFactor;
+
+        event.setDensity(density);
+        event.setCanceled(true);
     }
 
     @SubscribeEvent
@@ -75,35 +122,63 @@ public class DarknessFogHandler {
         if (event.getType() != RenderGameOverlayEvent.ElementType.HELMET) {
             return;
         }
-        EntityPlayer player = Minecraft.getMinecraft().player;
-        if (player != null && player.isPotionActive(ModPotions.DARKNESS)) {
-            ScaledResolution sr = event.getResolution();
-            int sw = sr.getScaledWidth();
-            int sh = sr.getScaledHeight();
-            float alpha = 0.2f + darknessPulse * 0.5f;
-
-            GlStateManager.disableDepth();
-            GlStateManager.depthMask(false);
-            GlStateManager.enableBlend();
-            GlStateManager.blendFunc(
-                GlStateManager.SourceFactor.SRC_ALPHA,
-                GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA
-            );
-            GlStateManager.color(0.0f, 0.0f, 0.0f, alpha);
-            Minecraft.getMinecraft().getTextureManager().bindTexture(VIGNETTE_TEX);
-
-            Tessellator tessellator = Tessellator.getInstance();
-            BufferBuilder buffer = tessellator.getBuffer();
-            buffer.begin(7, DefaultVertexFormats.POSITION_TEX);
-            buffer.pos(0.0, sh, -90.0).tex(0.0, 1.0).endVertex();
-            buffer.pos(sw, sh, -90.0).tex(1.0, 1.0).endVertex();
-            buffer.pos(sw, 0.0, -90.0).tex(1.0, 0.0).endVertex();
-            buffer.pos(0.0, 0.0, -90.0).tex(0.0, 0.0).endVertex();
-            tessellator.draw();
-
-            GlStateManager.depthMask(true);
-            GlStateManager.enableDepth();
-            GlStateManager.color(1.0f, 1.0f, 1.0f, 1.0f);
+        if (fadeFactor <= 0.01f) {
+            return;
         }
+        EntityPlayer player = Minecraft.getMinecraft().player;
+        if (player == null || !player.isPotionActive(ModPotions.DARKNESS)) {
+            return;
+        }
+
+        PotionEffect effect = player.getActivePotionEffect(ModPotions.DARKNESS);
+        float effectFade = 1.0f;
+        if (effect != null) {
+            int duration = effect.getDuration();
+            if (duration < 30) {
+                effectFade = duration / 30.0f;
+            }
+        }
+
+        float time = player.ticksExisted + Minecraft.getMinecraft().getRenderPartialTicks();
+        float pulse = (float) Math.sin(time * PULSE_SPEED) * 0.5f + 0.5f;
+        pulse = pulse * pulse;
+
+        float heartBoost = heartbeatPulse * 0.3f;
+        float effectivePulse = Math.min(1.0f, pulse + heartBoost);
+
+        float darkness = (1.0f - effectivePulse) * fadeFactor * effectFade;
+        float alpha = 0.15f + darkness * 0.8f;
+        alpha = Math.min(alpha, 0.95f);
+
+        ScaledResolution sr = event.getResolution();
+        int sw = sr.getScaledWidth();
+        int sh = sr.getScaledHeight();
+
+        GlStateManager.disableDepth();
+        GlStateManager.depthMask(false);
+        GlStateManager.enableBlend();
+        GlStateManager.blendFunc(
+            GlStateManager.SourceFactor.SRC_ALPHA,
+            GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA
+        );
+
+        GlStateManager.pushMatrix();
+        Minecraft.getMinecraft().getTextureManager().bindTexture(VIGNETTE_TEX);
+
+        Tessellator tessellator = Tessellator.getInstance();
+        BufferBuilder buffer = tessellator.getBuffer();
+        buffer.begin(7, DefaultVertexFormats.POSITION_TEX_COLOR);
+        int a = (int) (alpha * 255);
+        buffer.pos(0.0, sh, -90.0).tex(0.0, 1.0).color(0, 0, 0, a).endVertex();
+        buffer.pos(sw, sh, -90.0).tex(1.0, 1.0).color(0, 0, 0, a).endVertex();
+        buffer.pos(sw, 0.0, -90.0).tex(1.0, 0.0).color(0, 0, 0, a).endVertex();
+        buffer.pos(0.0, 0.0, -90.0).tex(0.0, 0.0).color(0, 0, 0, a).endVertex();
+        tessellator.draw();
+
+        GlStateManager.popMatrix();
+        GlStateManager.depthMask(true);
+        GlStateManager.enableDepth();
+        GlStateManager.color(1.0f, 1.0f, 1.0f, 1.0f);
+        GlStateManager.disableBlend();
     }
 }

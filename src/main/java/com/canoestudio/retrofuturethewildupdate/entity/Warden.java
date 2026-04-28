@@ -40,7 +40,8 @@ public class Warden extends EntityMob {
 
     private static final int MAX_HEALTH = 500;
     private static final int ATTACK_DAMAGE = 45;
-    private static final int DARKNESS_INTERVAL = 20;
+    private static final int DARKNESS_INTERVAL = 120;
+    private static final int DARKNESS_DURATION = 260;
     private static final int MELEE_UNTIL_BOOM = 60;
     private static final int BOOM_MAX_CHARGE = 40;
     private static final int BOOM_COOLDOWN_TIME = 100;
@@ -303,7 +304,7 @@ public class Warden extends EntityMob {
         List<EntityPlayer> players = this.world.getEntitiesWithinAABB(EntityPlayer.class,
             this.getEntityBoundingBox().grow(20.0));
         for (EntityPlayer player : players) {
-            player.addPotionEffect(new PotionEffect(ModPotions.DARKNESS, 220, 0, true, true));
+            player.addPotionEffect(new PotionEffect(ModPotions.DARKNESS, DARKNESS_DURATION, 0, true, true));
         }
     }
 
