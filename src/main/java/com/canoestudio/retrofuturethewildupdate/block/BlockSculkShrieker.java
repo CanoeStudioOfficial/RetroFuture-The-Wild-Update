@@ -16,7 +16,6 @@ import net.minecraft.creativetab.CreativeTabs;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.init.SoundEvents;
-import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.potion.PotionEffect;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.BlockRenderLayer;
@@ -39,8 +38,6 @@ public class BlockSculkShrieker extends Block implements ITileEntityProvider {
     public static final PropertyBool CAN_SUMMON = PropertyBool.create("can_summon");
     private static final AxisAlignedBB SHAPE = new AxisAlignedBB(0.0, 0.0, 0.0, 1.0, 0.9375, 1.0);
     private static final int SHRIEK_TICKS = 90;
-    private static final int WARNING_LIMIT = 4;
-    private static final int PLAYER_WARNING_DECAY = 12000;
 
     public BlockSculkShrieker() {
         super(Material.ROCK);
@@ -54,6 +51,10 @@ public class BlockSculkShrieker extends Block implements ITileEntityProvider {
     }
 
     public void receiveVibration(World world, BlockPos pos, @Nullable Entity source, int strength) {
+        this.receiveVibration(world, pos, source, SculkVibrationDispatcher.vibrationFromLegacyStrength(strength));
+    }
+
+    public void receiveVibration(World world, BlockPos pos, @Nullable Entity source, SculkVibration vibration) {
         if (world.isRemote) {
             return;
         }
@@ -72,12 +73,12 @@ public class BlockSculkShrieker extends Block implements ITileEntityProvider {
             return;
         }
 
-        this.startShrieking(world, pos, player);
+        this.startShrieking(world, pos, player, vibration);
     }
 
     @Override
     public void onEntityWalk(World worldIn, BlockPos pos, Entity entityIn) {
-        this.receiveVibration(worldIn, pos, entityIn, 15);
+        this.receiveVibration(worldIn, pos, entityIn, SculkVibration.STEP);
     }
 
     @Override
@@ -87,35 +88,36 @@ public class BlockSculkShrieker extends Block implements ITileEntityProvider {
         return true;
     }
 
-    private void startShrieking(World world, BlockPos pos, EntityPlayer player) {
+    private void startShrieking(World world, BlockPos pos, EntityPlayer player, SculkVibration vibration) {
         IBlockState state = world.getBlockState(pos);
         if (!(state.getBlock() instanceof BlockSculkShrieker)) {
             return;
         }
 
+        TileEntity tile = world.getTileEntity(pos);
+        if (tile instanceof TileEntitySculkShrieker) {
+            int warningLevel = state.getValue(CAN_SUMMON)
+                ? SculkWarningTracker.tryWarn(world, pos, player)
+                : 0;
+            if (state.getValue(CAN_SUMMON) && warningLevel <= 0) {
+                return;
+            }
+            ((TileEntitySculkShrieker) tile).markShrieking(SHRIEK_TICKS + 30, warningLevel, player.getUniqueID());
+        }
+
         world.setBlockState(pos, state.withProperty(SHRIEKING, true), 3);
         world.scheduleUpdate(pos, this, SHRIEK_TICKS);
         world.playSound(null, pos, SoundEvents.ENTITY_ENDERMEN_SCREAM, SoundCategory.BLOCKS, 1.7f, 0.45f);
-        this.applyDarkness(world, pos);
-
-        TileEntity tile = world.getTileEntity(pos);
-        if (tile instanceof TileEntitySculkShrieker) {
-            ((TileEntitySculkShrieker) tile).markShrieking(SHRIEK_TICKS + 30);
-        }
-
-        if (state.getValue(CAN_SUMMON)) {
-            int warnings = this.addWarning(player, world);
-            if (warnings >= WARNING_LIMIT) {
-                this.trySpawnWarden(world, pos, player);
-                this.clearWarning(player);
-            }
-        }
     }
 
     @Override
     public void updateTick(World worldIn, BlockPos pos, IBlockState state, Random rand) {
         if (!worldIn.isRemote && state.getValue(SHRIEKING)) {
             worldIn.setBlockState(pos, state.withProperty(SHRIEKING, false), 3);
+            TileEntity tile = worldIn.getTileEntity(pos);
+            if (tile instanceof TileEntitySculkShrieker) {
+                this.respondAfterShriek(worldIn, pos, state, (TileEntitySculkShrieker) tile);
+            }
         }
     }
 
@@ -128,31 +130,36 @@ public class BlockSculkShrieker extends Block implements ITileEntityProvider {
         }
     }
 
-    private int addWarning(EntityPlayer player, World world) {
-        NBTTagCompound data = player.getEntityData();
-        long now = world.getTotalWorldTime();
-        long lastWarning = data.getLong("rtwu_sculk_warning_time");
-        int warnings = now - lastWarning > PLAYER_WARNING_DECAY ? 0 : data.getInteger("rtwu_sculk_warning_count");
-        warnings++;
-        data.setInteger("rtwu_sculk_warning_count", warnings);
-        data.setLong("rtwu_sculk_warning_time", now);
-        return warnings;
-    }
-
-    private void clearWarning(EntityPlayer player) {
-        NBTTagCompound data = player.getEntityData();
-        data.setInteger("rtwu_sculk_warning_count", 0);
-        data.setLong("rtwu_sculk_warning_time", 0L);
-    }
-
-    private void trySpawnWarden(World world, BlockPos shriekerPos, EntityPlayer player) {
-        if (world.getDifficulty() == EnumDifficulty.PEACEFUL) {
+    private void respondAfterShriek(World world, BlockPos pos, IBlockState state, TileEntitySculkShrieker tile) {
+        int warningLevel = tile.getWarningLevel();
+        if (!state.getValue(CAN_SUMMON) || warningLevel <= 0 || world.getDifficulty() == EnumDifficulty.PEACEFUL) {
+            tile.clearWarningLevel();
             return;
+        }
+
+        EntityPlayer player = tile.getTriggerPlayer(world);
+        boolean spawned = warningLevel >= SculkWarningTracker.MAX_WARNING_LEVEL && player != null && this.trySpawnWarden(world, pos, player);
+        if (!spawned) {
+            this.playWarningReply(world, pos, warningLevel);
+        }
+        this.applyDarkness(world, pos);
+        tile.clearWarningLevel();
+    }
+
+    private void playWarningReply(World world, BlockPos pos, int warningLevel) {
+        float pitch = 0.75f + Math.min(3, warningLevel) * 0.1f;
+        world.playSound(null, pos.getX() + world.rand.nextInt(21) - 10, pos.getY() + world.rand.nextInt(11) - 5,
+            pos.getZ() + world.rand.nextInt(21) - 10, ModSounds.WARDEN_NEARBY_CLOSER, SoundCategory.HOSTILE, 5.0f, pitch);
+    }
+
+    private boolean trySpawnWarden(World world, BlockPos shriekerPos, EntityPlayer player) {
+        if (world.getDifficulty() == EnumDifficulty.PEACEFUL) {
+            return false;
         }
 
         AxisAlignedBB existingArea = new AxisAlignedBB(shriekerPos).grow(48.0);
         if (!world.getEntitiesWithinAABB(Warden.class, existingArea).isEmpty()) {
-            return;
+            return false;
         }
 
         Random rand = world.rand;
@@ -173,11 +180,13 @@ public class BlockSculkShrieker extends Block implements ITileEntityProvider {
                     warden.enablePersistence();
                     if (world.spawnEntity(warden)) {
                         world.playSound(null, spawnPos, ModSounds.WARDEN_EMERGE, SoundCategory.HOSTILE, 1.5f, 1.0f);
+                        return true;
                     }
-                    return;
+                    return false;
                 }
             }
         }
+        return false;
     }
 
     private boolean canSpawnAt(World world, BlockPos pos) {

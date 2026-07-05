@@ -10,7 +10,6 @@ import net.minecraft.block.state.BlockStateContainer;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.creativetab.CreativeTabs;
 import net.minecraft.entity.EntityLivingBase;
-import net.minecraft.init.Blocks;
 import net.minecraft.init.SoundEvents;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.SoundCategory;
@@ -22,7 +21,7 @@ import java.util.Random;
 public class BlockSculkCatalyst extends Block implements ITileEntityProvider {
 
     public static final PropertyBool BLOOM = PropertyBool.create("bloom");
-    private static final int BLOOM_TICKS = 40;
+    private static final int BLOOM_TICKS = 8;
 
     public BlockSculkCatalyst() {
         super(Material.ROCK);
@@ -36,6 +35,10 @@ public class BlockSculkCatalyst extends Block implements ITileEntityProvider {
     }
 
     public void bloomFromDeath(World world, BlockPos catalystPos, EntityLivingBase deadEntity) {
+        this.bloomFromDeath(world, catalystPos, deadEntity, Math.max(1, Math.min(1000, (int) Math.ceil(deadEntity.getMaxHealth() / 5.0f))));
+    }
+
+    public void bloomFromDeath(World world, BlockPos catalystPos, EntityLivingBase deadEntity, int charge) {
         if (world.isRemote) {
             return;
         }
@@ -47,10 +50,10 @@ public class BlockSculkCatalyst extends Block implements ITileEntityProvider {
 
         world.setBlockState(catalystPos, this.getDefaultState().withProperty(BLOOM, true), 3);
         world.scheduleUpdate(catalystPos, this, BLOOM_TICKS);
-        world.playSound(null, catalystPos, SoundEvents.BLOCK_PORTAL_AMBIENT, SoundCategory.BLOCKS, 0.6f, 1.6f);
-        this.spreadSculk(world, catalystPos, new BlockPos(deadEntity), Math.max(3, Math.min(12, (int) Math.ceil(deadEntity.getMaxHealth() / 5.0f))));
+        world.playSound(null, catalystPos, SoundEvents.BLOCK_PORTAL_AMBIENT, SoundCategory.BLOCKS, 1.2f, 0.8f);
 
         if (tile instanceof TileEntitySculkCatalyst) {
+            ((TileEntitySculkCatalyst) tile).addChargeCursor(new BlockPos(deadEntity).up(), Math.max(1, Math.min(1000, charge)));
             ((TileEntitySculkCatalyst) tile).markBlooming(BLOOM_TICKS + 20);
         }
     }
@@ -60,47 +63,6 @@ public class BlockSculkCatalyst extends Block implements ITileEntityProvider {
         if (!worldIn.isRemote && state.getValue(BLOOM)) {
             worldIn.setBlockState(pos, state.withProperty(BLOOM, false), 3);
         }
-    }
-
-    private void spreadSculk(World world, BlockPos catalystPos, BlockPos deathPos, int attempts) {
-        Random rand = world.rand;
-        for (int i = 0; i < attempts; ++i) {
-            BlockPos target = deathPos.add(rand.nextInt(9) - 4, rand.nextInt(5) - 2, rand.nextInt(9) - 4);
-            BlockPos floor = findFloor(world, target);
-            if (floor == null || floor.distanceSq(catalystPos) > 144.0) {
-                continue;
-            }
-
-            if (world.isAirBlock(floor.up()) && rand.nextInt(3) == 0) {
-                world.setBlockState(floor.up(), ModBlocks.SCULK_VEIN.getDefaultState().withProperty(BlockSculkVein.DOWN, true), 3);
-            } else if (canReplaceWithSculk(world, floor)) {
-                world.setBlockState(floor, ModBlocks.SCULK.getDefaultState(), 3);
-            }
-        }
-    }
-
-    private BlockPos findFloor(World world, BlockPos origin) {
-        for (int offset = 2; offset >= -3; --offset) {
-            BlockPos pos = origin.add(0, offset, 0);
-            if (canReplaceWithSculk(world, pos) || world.getBlockState(pos).isSideSolid(world, pos, net.minecraft.util.EnumFacing.UP)) {
-                return pos;
-            }
-        }
-        return null;
-    }
-
-    private boolean canReplaceWithSculk(World world, BlockPos pos) {
-        IBlockState state = world.getBlockState(pos);
-        Material material = state.getMaterial();
-        return state.isFullBlock()
-            && material != Material.AIR
-            && material != Material.WATER
-            && material != Material.LAVA
-            && material != Material.PORTAL
-            && state.getBlock() != Blocks.BEDROCK
-            && state.getBlock() != this
-            && state.getBlock() != ModBlocks.SCULK_SENSOR
-            && state.getBlock() != ModBlocks.SCULK_SHRIEKER;
     }
 
     @Override

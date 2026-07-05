@@ -30,7 +30,8 @@ public class BlockSculkSensor extends Block implements ITileEntityProvider {
     public static final PropertyBool ACTIVE = PropertyBool.create("active");
     public static final PropertyInteger POWER = PropertyInteger.create("power", 0, 15);
     private static final AxisAlignedBB SHAPE = new AxisAlignedBB(0.0, 0.0, 0.0, 1.0, 0.5, 1.0);
-    private static final int ACTIVE_TICKS = 40;
+    private static final int ACTIVE_TICKS = 30;
+    private static final int COOLDOWN_TICKS = 10;
 
     public BlockSculkSensor() {
         super(Material.ROCK);
@@ -44,6 +45,10 @@ public class BlockSculkSensor extends Block implements ITileEntityProvider {
     }
 
     public void receiveVibration(World world, BlockPos pos, @Nullable Entity source, int strength) {
+        this.receiveVibration(world, pos, source, SculkVibrationDispatcher.vibrationFromLegacyStrength(strength), Math.max(1, Math.min(15, strength)));
+    }
+
+    public void receiveVibration(World world, BlockPos pos, @Nullable Entity source, SculkVibration vibration, int redstonePower) {
         if (world.isRemote) {
             return;
         }
@@ -53,18 +58,18 @@ public class BlockSculkSensor extends Block implements ITileEntityProvider {
             return;
         }
 
-        int power = Math.max(1, Math.min(15, strength));
+        int power = Math.max(1, Math.min(15, redstonePower));
         IBlockState activeState = this.getDefaultState().withProperty(ACTIVE, true).withProperty(POWER, power);
         world.setBlockState(pos, activeState, 3);
         world.scheduleUpdate(pos, this, ACTIVE_TICKS);
         world.notifyNeighborsOfStateChange(pos, this, false);
-        world.playSound(null, pos, SoundEvents.BLOCK_NOTE_HARP, SoundCategory.BLOCKS, 0.8f, 0.5f + power * 0.03f);
+        world.playSound(null, pos, SoundEvents.BLOCK_NOTE_HARP, SoundCategory.BLOCKS, 0.8f, 0.5f + vibration.getFrequency() * 0.03f);
 
         if (tile instanceof TileEntitySculkSensor) {
-            ((TileEntitySculkSensor) tile).markActivated(world, ACTIVE_TICKS + 10);
+            ((TileEntitySculkSensor) tile).markActivated(world, vibration.getFrequency(), ACTIVE_TICKS + COOLDOWN_TICKS);
         }
 
-        SculkVibrationDispatcher.emitFromSensor(world, pos, source, strength);
+        SculkVibrationDispatcher.emitFromSensor(world, pos, source, vibration);
     }
 
     @Override
@@ -72,6 +77,7 @@ public class BlockSculkSensor extends Block implements ITileEntityProvider {
         if (!worldIn.isRemote && state.getValue(ACTIVE)) {
             worldIn.setBlockState(pos, this.getDefaultState(), 3);
             worldIn.notifyNeighborsOfStateChange(pos, this, false);
+            worldIn.scheduleUpdate(pos, this, COOLDOWN_TICKS);
         }
     }
 
@@ -108,6 +114,19 @@ public class BlockSculkSensor extends Block implements ITileEntityProvider {
     @Override
     public int getStrongPower(IBlockState blockState, IBlockAccess blockAccess, BlockPos pos, EnumFacing side) {
         return blockState.getValue(POWER);
+    }
+
+    @Override
+    public boolean hasComparatorInputOverride(IBlockState state) {
+        return true;
+    }
+
+    @Override
+    public int getComparatorInputOverride(IBlockState blockState, World worldIn, BlockPos pos) {
+        TileEntity tile = worldIn.getTileEntity(pos);
+        return blockState.getValue(ACTIVE) && tile instanceof TileEntitySculkSensor
+            ? ((TileEntitySculkSensor) tile).getLastVibrationFrequency()
+            : 0;
     }
 
     @Override
