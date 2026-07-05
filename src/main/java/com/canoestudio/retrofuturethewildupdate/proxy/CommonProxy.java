@@ -1,12 +1,14 @@
 package com.canoestudio.retrofuturethewildupdate.proxy;
 
 import com.canoestudio.retrofuturethewildupdate.RTWU;
+import com.canoestudio.retrofuturethewildupdate.block.ModBlocks;
 import net.minecraft.util.ResourceLocation;
 import net.minecraft.world.World;
 
 public class CommonProxy {
 
     public void preInit() {
+        ModBlocks.registerTileEntities();
     }
 
     public void init() {

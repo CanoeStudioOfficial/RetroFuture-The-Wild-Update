@@ -1,10 +1,12 @@
 package com.canoestudio.retrofuturethewildupdate.proxy;
 
 import com.canoestudio.retrofuturethewildupdate.RTWU;
+import com.canoestudio.retrofuturethewildupdate.block.ModBlocks;
 import com.canoestudio.retrofuturethewildupdate.client.particle.ParticleSonicBoom;
 import com.canoestudio.retrofuturethewildupdate.entity.Warden;
 import com.canoestudio.retrofuturethewildupdate.client.renderer.RenderWarden;
 import com.canoestudio.retrofuturethewildupdate.item.ModItems;
+import net.minecraft.block.Block;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.particle.Particle;
 import net.minecraft.client.renderer.block.model.ModelResourceLocation;
@@ -23,6 +25,7 @@ public class ClientProxy extends CommonProxy {
 
     @Override
     public void preInit() {
+        super.preInit();
         RenderingRegistry.registerEntityRenderingHandler(Warden.class, manager -> new RenderWarden(manager));
     }
 
@@ -36,5 +39,18 @@ public class ClientProxy extends CommonProxy {
     public static void registerModels(ModelRegistryEvent event) {
         ModelLoader.setCustomModelResourceLocation(ModItems.WARDEN_EGG, 0,
             new ModelResourceLocation(RTWU.ID + ":warden_egg", "inventory"));
+        registerBlockModel(ModBlocks.SCULK);
+        registerBlockModel(ModBlocks.SCULK_VEIN);
+        registerBlockModel(ModBlocks.SCULK_SENSOR);
+        registerBlockModel(ModBlocks.SCULK_SHRIEKER);
+        registerBlockModel(ModBlocks.SCULK_CATALYST);
+    }
+
+    private static void registerBlockModel(Block block) {
+        ResourceLocation name = block.getRegistryName();
+        if (name != null) {
+            ModelLoader.setCustomModelResourceLocation(Item.getItemFromBlock(block), 0,
+                new ModelResourceLocation(name, "inventory"));
+        }
     }
 }
