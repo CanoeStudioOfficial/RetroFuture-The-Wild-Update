@@ -7,6 +7,7 @@ import net.minecraft.block.material.Material;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.BufferBuilder;
 import net.minecraft.client.renderer.GlStateManager;
+import net.minecraft.client.renderer.OpenGlHelper;
 import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.client.renderer.vertex.DefaultVertexFormats;
 import net.minecraft.client.gui.ScaledResolution;
@@ -30,6 +31,9 @@ public class DarknessFogHandler {
     private static float fadeFactor = 0.0f;
     private static boolean hadDarknessLastTick = false;
     private static float heartbeatPulse = 0.0f;
+    private static boolean forcedHotbarLightmap = false;
+    private static float previousHotbarLightmapX = 0.0f;
+    private static float previousHotbarLightmapY = 0.0f;
 
     private static final float FOG_DENSITY_MAX = 1.2f;
     private static final float FOG_DENSITY_MIN = 0.15f;
@@ -180,5 +184,35 @@ public class DarknessFogHandler {
         GlStateManager.enableDepth();
         GlStateManager.color(1.0f, 1.0f, 1.0f, 1.0f);
         GlStateManager.disableBlend();
+    }
+
+    @SubscribeEvent(priority = EventPriority.LOWEST)
+    public static void onHotbarPre(RenderGameOverlayEvent.Pre event) {
+        if (event.getType() != RenderGameOverlayEvent.ElementType.HOTBAR) {
+            return;
+        }
+
+        previousHotbarLightmapX = OpenGlHelper.lastBrightnessX;
+        previousHotbarLightmapY = OpenGlHelper.lastBrightnessY;
+        forcedHotbarLightmap = true;
+        GlStateManager.setActiveTexture(OpenGlHelper.lightmapTexUnit);
+        GlStateManager.enableTexture2D();
+        OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, 240.0f, 240.0f);
+        GlStateManager.setActiveTexture(OpenGlHelper.defaultTexUnit);
+        GlStateManager.color(1.0f, 1.0f, 1.0f, 1.0f);
+    }
+
+    @SubscribeEvent(priority = EventPriority.LOWEST)
+    public static void onHotbarPost(RenderGameOverlayEvent.Post event) {
+        if (event.getType() != RenderGameOverlayEvent.ElementType.HOTBAR || !forcedHotbarLightmap) {
+            return;
+        }
+
+        OpenGlHelper.setLightmapTextureCoords(
+            OpenGlHelper.lightmapTexUnit,
+            previousHotbarLightmapX,
+            previousHotbarLightmapY
+        );
+        forcedHotbarLightmap = false;
     }
 }
