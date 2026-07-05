@@ -63,8 +63,12 @@ public class BlockSculkShrieker extends Block implements ITileEntityProvider {
             return;
         }
 
-        EntityPlayer player = source instanceof EntityPlayer ? (EntityPlayer) source : findNearestPlayer(world, pos);
-        if (player == null || player.isCreative() || player.isSpectator()) {
+        if (!(source instanceof EntityPlayer)) {
+            return;
+        }
+
+        EntityPlayer player = (EntityPlayer) source;
+        if (player.isCreative() || player.isSpectator()) {
             return;
         }
 
@@ -186,21 +190,6 @@ public class BlockSculkShrieker extends Block implements ITileEntityProvider {
             && world.isAirBlock(pos.up())
             && world.getCollisionBoxes(null, box).isEmpty()
             && !world.containsAnyLiquid(box);
-    }
-
-    @Nullable
-    private EntityPlayer findNearestPlayer(World world, BlockPos pos) {
-        List<EntityPlayer> players = world.getEntitiesWithinAABB(EntityPlayer.class, new AxisAlignedBB(pos).grow(16.0));
-        EntityPlayer nearest = null;
-        double nearestDistance = Double.MAX_VALUE;
-        for (EntityPlayer player : players) {
-            double distance = player.getDistanceSq(pos);
-            if (distance < nearestDistance && !player.isCreative() && !player.isSpectator()) {
-                nearest = player;
-                nearestDistance = distance;
-            }
-        }
-        return nearest;
     }
 
     @Override
